@@ -44,6 +44,16 @@ class InstallerTests(unittest.TestCase):
                 profile.update_profile(self.target, action)
             self.assertEqual(self.target.read_bytes(), newer)
 
+    def test_previous_profile_can_upgrade_or_restore(self):
+        previous = self.patched.split(b'// Steam startup size padding: ', 1)[0]
+        checks = json.loads((ROOT / 'checksums.json').read_text())
+        self.assertEqual(profile.digest(previous), checks['patched-v1'])
+        for action, expected in [('apply', self.patched), ('restore', self.original)]:
+            self.target.write_bytes(previous)
+            self.assertEqual(profile.update_profile(self.target, 'status'), 'patched-v1')
+            profile.update_profile(self.target, action)
+            self.assertEqual(self.target.read_bytes(), expected)
+
     def test_corrupt_bundle_is_never_installed(self):
         bundle = Path(self.temp.name) / 'bundle'
         bundle.mkdir()
@@ -133,8 +143,10 @@ class MappingTests(unittest.TestCase):
 
     def test_bundle_checksums_match(self):
         checks = json.loads((ROOT / 'checksums.json').read_text())
-        for kind, expected in checks.items():
-            self.assertEqual(profile.digest((ROOT / f'basicui_gamepad.{kind}.vdf').read_bytes()), expected)
+        for kind in ['original', 'patched']:
+            self.assertEqual(profile.digest((ROOT / f'basicui_gamepad.{kind}.vdf').read_bytes()), checks[kind])
+        self.assertEqual((ROOT / 'basicui_gamepad.original.vdf').stat().st_size,
+                         (ROOT / 'basicui_gamepad.patched.vdf').stat().st_size)
 
 
 if __name__ == '__main__':

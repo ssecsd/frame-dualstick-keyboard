@@ -28,11 +28,18 @@ class InstallationTests(unittest.TestCase):
         self.profile.write_bytes(self.original_profile)
         self.ui = self.root / 'steamui/test.js'
         self.ui.parent.mkdir()
-        self.original_ui = b'prefix;' + ui_patch.MOUNT + b';middle;' + ui_patch.UNMOUNT + b';suffix'
+        reserve = b'var unusedBuildMarker="' + b'x' * 2400 + b'";'
+        self.reserves = [{'offset': len(b'prefix;'), 'text': reserve.decode()}]
+        self.original_ui = b'prefix;' + reserve + ui_patch.MOUNT + b';middle;' + ui_patch.UNMOUNT + b';suffix'
         self.ui.write_bytes(self.original_ui)
-        changed = ui_patch.transform(self.original_ui, 'apply', self.bundle)
+        unpadded = ui_patch.transform(self.original_ui, 'apply', self.bundle, self.reserves)
+        self.padding = len(self.original_ui) - len(unpadded)
+        self.assertGreaterEqual(self.padding, 0)
+        changed = ui_patch.transform(self.original_ui, 'apply', self.bundle, self.reserves, self.padding)
+        self.legacy_ui = ui_patch.transform_hooks(self.original_ui, 'apply', self.bundle)
         self.checks = {'file': 'steamui/test.js', 'original': ui_patch.digest(self.original_ui),
-                       'patched': ui_patch.digest(changed)}
+                       'patched': ui_patch.digest(changed), 'previous_patched': ui_patch.digest(self.legacy_ui),
+                       'original_size': len(self.original_ui), 'reserves': self.reserves, 'padding': self.padding}
         (self.bundle / 'ui-checksums.json').write_text(json.dumps(self.checks))
 
     def update(self, action):
@@ -41,6 +48,7 @@ class InstallationTests(unittest.TestCase):
     def test_new_install_repeat_and_exact_restore_of_both_files(self):
         self.update('apply')
         self.assertEqual(ui_patch.digest(self.ui.read_bytes()), self.checks['patched'])
+        self.assertEqual(self.ui.stat().st_size, len(self.original_ui))
         self.assertEqual(self.update('status'), 'Controller profile: patched\nKeyboard UI: patched')
         self.assertTrue(self.update('apply').startswith('Already'))
         self.update('restore')
@@ -48,11 +56,20 @@ class InstallationTests(unittest.TestCase):
         self.assertEqual(self.ui.read_bytes(), self.original_ui)
 
     def test_upgrade_from_profile_only_installation(self):
-        previous = (ROOT / 'basicui_gamepad.patched.vdf').read_bytes()
+        patched = (ROOT / 'basicui_gamepad.patched.vdf').read_bytes()
+        previous = patched.split(b'// Steam startup size padding: ', 1)[0]
         self.profile.write_bytes(previous)
         self.update('apply')
-        self.assertEqual(self.profile.read_bytes(), previous)
+        self.assertEqual(self.profile.read_bytes(), patched)
         self.assertEqual(ui_patch.digest(self.ui.read_bytes()), self.checks['patched'])
+
+    def test_previous_ui_patch_can_upgrade_or_restore(self):
+        for action, expected in [('apply', self.checks['patched']), ('restore', self.checks['original'])]:
+            self.ui.write_bytes(self.legacy_ui)
+            self.assertIn('Keyboard UI: patched-v1', self.update('status'))
+            self.update(action)
+            self.assertEqual(ui_patch.digest(self.ui.read_bytes()), expected)
+            self.assertEqual(self.ui.stat().st_size, len(self.original_ui))
 
     def test_unsupported_ui_is_rejected_before_any_file_changes(self):
         newer = self.original_ui + b';new Steam release'
@@ -85,8 +102,8 @@ class InstallationTests(unittest.TestCase):
         self.assertEqual(self.ui.read_bytes(), self.original_ui)
 
     def test_reverse_patch_preserves_surrounding_bytes(self):
-        changed = ui_patch.transform(self.original_ui, 'apply', self.bundle)
-        self.assertEqual(ui_patch.transform(changed, 'restore', self.bundle), self.original_ui)
+        changed = ui_patch.transform(self.original_ui, 'apply', self.bundle, self.reserves, self.padding)
+        self.assertEqual(ui_patch.transform(changed, 'restore', self.bundle, self.reserves, self.padding), self.original_ui)
         with self.assertRaisesRegex(ValueError, 'hooks do not match'):
             ui_patch.transform(self.original_ui + ui_patch.MOUNT, 'apply', self.bundle)
 

@@ -10,6 +10,8 @@ continues to handle panel focus, keyboard layouts, and text input.
 The keyboard also receives a small UI fix so its cursors stay active at the
 center of each stick while your thumbs are touching them. This behavior was
 confirmed on the Frame on October 1, 2026.
+The current installation was also verified to survive Steam's startup file check
+and load the cursor fix automatically after restarting Steam.
 
 ## Installation
 
@@ -67,6 +69,8 @@ python3 ~/.local/share/frame-dualstick-keyboard/profile.py apply
 For a ZIP installation, download and extract the latest ZIP, then run its
 `python3 profile.py apply`. Restart Steam or the headset afterward. The original
 profile-only release can be upgraded directly, without uninstalling it first.
+The earlier center-fix release can also be upgraded directly. That release changed
+the file sizes, which caused Steam to restore the originals during startup.
 
 ## Controls
 
@@ -88,6 +92,7 @@ python3 ~/.local/share/frame-dualstick-keyboard/profile.py restore
 
 `status` reports `original`, `patched`, or `different-version` separately for
 the controller profile and keyboard UI. `restore` restores both original files.
+`patched-v1` identifies an earlier patch that can be upgraded with `apply`.
 Restart Steam after restoring the original profile. Repeated installation and
 rollback are safe: the installer detects when the requested state is already applied.
 
@@ -121,6 +126,13 @@ refreshing after release and cleans up when the keyboard unmounts. This UI fix
 applies only to Steam Frame controllers and generates no button presses.
 
 A Steam update may replace either file and remove the corresponding patch.
+
+Ordinary Steam startup checks file sizes. Both patched files retain their exact
+original sizes so this check does not undo the installation. The profile includes
+a padding comment. The UI patch makes room for its helper by removing a recorded
+set of unused build-marker declarations, verified against the supported source;
+rollback restores those declarations byte for byte. Updates and explicit file
+repair may still restore Valve's originals.
 
 The tested Steam version did not apply a separate user profile for the system
 interface (application 769), so the patch changes the base file it actually loads.
@@ -168,6 +180,7 @@ node --check reload.mjs
 Tests cover installation, repeated application, exact rollback, permission
 preservation, rejection of incompatible files or corrupted packages, rollback
 after a partial installation failure, and preservation of other action sets.
+They also verify file sizes and upgrades from the earlier patches.
 JavaScript tests cover neutral cursor updates, return to zero, release and
 retouch, controller filtering, disconnects, and cleanup. Physical input was verified by
 the user on a Frame; automated tests operate on temporary copies of the files.
